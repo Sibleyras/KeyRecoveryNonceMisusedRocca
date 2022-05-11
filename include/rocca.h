@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "../src/rocca_u128.h"
 
 enum {
     // ROCCA_KEY_SIZE is the size in bytes of a Rocca key.
@@ -16,6 +17,27 @@ enum {
     // a plaintext and its ciphertext.
     ROCCA_OVERHEAD = ROCCA_TAG_SIZE,
 };
+
+typedef u128 rocca_state[8];
+
+// Z0: A constant block defined as Z0 = 428a2f98d728ae227137449123ef65cd.
+static const uint8_t Z0[16] = {
+    0xcd, 0x65, 0xef, 0x23, 0x91, 0x44, 0x37, 0x71,
+    0x22, 0xae, 0x28, 0xd7, 0x98, 0x2f, 0x8a, 0x42,
+};
+
+// Z1: A constant block defined as Z1 = b5c0fbcfec4d3b2fe9b5dba58189dbbc.
+static const uint8_t Z1[16] = {
+    0xbc, 0xdb, 0x89, 0x81, 0xa5, 0xdb, 0xb5, 0xe9,
+    0x2f, 0x3b, 0x4d, 0xec, 0xcf, 0xfb, 0xc0, 0xb5,
+};
+
+u128 rocca_mac(rocca_state s, uint64_t additional_data_len, uint64_t plaintext_len);
+
+void rocca_update(rocca_state s, u128 x0, u128 x1);
+void rocca_downdate(rocca_state s, u128 x0, u128 x1);
+
+void rocca_init(rocca_state s, const uint8_t key[ROCCA_KEY_SIZE], const uint8_t nonce[ROCCA_NONCE_SIZE]);
 
 // rocca_seal encrypts and authenticates |plaintext_len| bytes
 // from |plaintext|, authenticates |additional_data_len| bytes

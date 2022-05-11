@@ -1,17 +1,9 @@
+// Rocca implementation by Eric Lagergen.
+
 #include "rocca.h"
 
 #define __STDC_WANT_LIB_EXT1__ 1
-#include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
-
-#if defined(__SSE2__) && defined(__AES__)
-#include "rocca_amd64.h"
-#elif defined(__ARM_NEON) && defined(__ARM_FEATURE_CRYPTO)
-#include "rocca_arm64.h"
-#else
-#error "TODO"
-#endif // defined(__SSE2__) && defined(__AES__)
 
 enum {
     // ROCCA_ROUNDS is the number of state update rounds performed by
@@ -21,21 +13,7 @@ enum {
     ROCCA_BLOCK_SIZE = 32,
 };
 
-// Z0: A constant block defined as Z0 = 428a2f98d728ae227137449123ef65cd.
-static const uint8_t Z0[16] = {
-    0xcd, 0x65, 0xef, 0x23, 0x91, 0x44, 0x37, 0x71,
-    0x22, 0xae, 0x28, 0xd7, 0x98, 0x2f, 0x8a, 0x42,
-};
-
-// Z1: A constant block defined as Z1 = b5c0fbcfec4d3b2fe9b5dba58189dbbc.
-static const uint8_t Z1[16] = {
-    0xbc, 0xdb, 0x89, 0x81, 0xa5, 0xdb, 0xb5, 0xe9,
-    0x2f, 0x3b, 0x4d, 0xec, 0xcf, 0xfb, 0xc0, 0xb5,
-};
-
-typedef u128 rocca_state[8];
-
-static void rocca_update(rocca_state s, u128 x0, u128 x1) {
+void rocca_update(rocca_state s, u128 x0, u128 x1) {
     u128 t0 = xor_u128(s[7], x0);    // Snew[0] = S[7] ⊕ X0
     u128 t1 = aes_round(s[0], s[7]); // Snew[1] = AES(S[0], S[7])
     u128 t2 = xor_u128(s[1], s[6]);  // Snew[2] = S[1] ⊕ S[6]
@@ -55,7 +33,27 @@ static void rocca_update(rocca_state s, u128 x0, u128 x1) {
     s[7] = t7;
 }
 
-static void rocca_init(rocca_state s,
+void rocca_downdate(rocca_state s, u128 x0, u128 x1) {
+    u128 t7 = xor_u128(s[0], x0);       // Sold[7] = S[0] ⊕ X0
+    u128 t3 = xor_u128(s[4], x1);       // Sold[3] = S[4] ⊕ X1
+    u128 t0 = aes_inv_round(s[1], t7);  // Sold[0] = AES_INV(S[1] ⊕ Sold[7])
+    u128 t4 = aes_inv_round(s[5], t3);  // Sold[4] = AES_INV(S[5] ⊕ Sold[3])
+    u128 t6 = xor_u128(s[7], t0);       // Sold[6] = S[7] ⊕ Sold[0]
+    u128 t5 = aes_inv_round(s[6], t4);  // Sold[5] = AES_INV(S[6] ⊕ Sold[4])
+    u128 t1 = xor_u128(s[2], t6);       // Sold[1] = S[2] ⊕ Sold[6]
+    u128 t2 = aes_inv_round(s[3], t1);  // Sold[2] = AES_INV(S[3] ⊕ Sold[1])
+
+    s[0] = t0;
+    s[1] = t1;
+    s[2] = t2;
+    s[3] = t3;
+    s[4] = t4;
+    s[5] = t5;
+    s[6] = t6;
+    s[7] = t7;
+}
+
+void rocca_init(rocca_state s,
                        const uint8_t key[ROCCA_KEY_SIZE],
                        const uint8_t nonce[ROCCA_NONCE_SIZE]) {
     u128 z0 = load_u128(Z0);
@@ -159,11 +157,11 @@ static void put_le64(uint8_t* b, uint64_t v) {
     b[7] = (uint8_t)(v >> 56);
 }
 
-static u128 rocca_mac(rocca_state s,
+u128 rocca_mac(rocca_state s,
                       uint64_t additional_data_len,
                       uint64_t plaintext_len) {
     uint8_t buf[16] = {0};
-
+    
     put_le64(buf, additional_data_len * 8);
     u128 ad = load_u128(buf);
 
@@ -200,20 +198,20 @@ bool rocca_seal(uint8_t* dst,
         return false;
     }
     if ((SIZE_MAX - plaintext_len) < ROCCA_OVERHEAD) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     if (key == NULL || key_len != ROCCA_KEY_SIZE) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     if (nonce == NULL || nonce_len != ROCCA_NONCE_SIZE) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     if (((plaintext == NULL) != (plaintext_len == 0)) ||
         ((additional_data == NULL) != (additional_data_len == 0))) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
 
@@ -259,8 +257,7 @@ bool rocca_seal(uint8_t* dst,
 
     u128 tag = rocca_mac(s, additional_data_len, plaintext_len);
     store_u128(&dst[(nblocks * ROCCA_BLOCK_SIZE) + remain], tag);
-
-    memset_s(tmp, sizeof(tmp), 0, sizeof(tmp));
+    memset(tmp, 0, sizeof(tmp));
 
     return true;
 }
@@ -279,19 +276,19 @@ bool rocca_open(uint8_t* dst,
         return false;
     }
     if (ciphertext == NULL || ciphertext_len < ROCCA_OVERHEAD) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     if (key == NULL || key_len != ROCCA_KEY_SIZE) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     if (nonce == NULL || nonce_len != ROCCA_NONCE_SIZE) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     if ((additional_data == NULL) != (additional_data_len == 0)) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
 
@@ -337,11 +334,11 @@ bool rocca_open(uint8_t* dst,
         rocca_dec_partial(s, &dst[nblocks * ROCCA_BLOCK_SIZE], remain, tmp);
     }
 
-    memset_s(tmp, sizeof(tmp), 0, sizeof(tmp));
+    memset(tmp, 0, sizeof(tmp));
 
     u128 expectedTag = rocca_mac(s, additional_data_len, ciphertext_len);
     if (!constant_time_compare_u128(tag, expectedTag)) {
-        memset_s(dst, dst_len, 0, dst_len);
+        memset(dst, 0, dst_len);
         return false;
     }
     return true;
