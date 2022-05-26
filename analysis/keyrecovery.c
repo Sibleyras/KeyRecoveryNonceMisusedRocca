@@ -1,22 +1,19 @@
 #include "rocca.h"
 
-#include <inttypes.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
-#define MAX_GUESSOUTPUT 130
-#define MAX_GUESS 1050
-typedef uint64_t u64;
+#define MAX_GUESSOUTPUT 250
+#define MAX_GUESS 2050
 
+// Fill the key with random bits.
 void randkey(uint8_t key[32], const int seed){
     srand(seed);
     for(int i = 0; i < 32; i++)
         key[i] = rand();
 }
 
+// Load the rocca_state dst with the byte values contained in src.
 void loadroccastate(rocca_state dst, const int src[8][16]){
     uint8_t tmp[16];
     for(int i = 0; i < 8; i++){
@@ -26,6 +23,7 @@ void loadroccastate(rocca_state dst, const int src[8][16]){
     }
 }
 
+// Print the content of a char array.
 void printuint8arr(int len, const uint8_t state[len]){
     for(int i = 0; i < len; i++){
         printf("%02x", 0xFF&state[i]);
@@ -33,12 +31,14 @@ void printuint8arr(int len, const uint8_t state[len]){
     }
 }
 
+// Load the 16 bytes contained in u128 src to integer array dst.
 void u128_to_arr(int dst[16], const u128 src){
     uint8_t tmp[16]; store_u128(tmp, src);
     for(int i = 0; i < 16; i++)
         dst[i] = tmp[i];
 }
 
+// Apply a function fun that takes a char array as input to an integer array dst.
 void uint_fun_for_int(int len, int dst[len], void (*fun)(uint8_t*)){
     uint8_t tmp[len];
     for(int i = 0; i < 16; i++)
@@ -50,6 +50,7 @@ void uint_fun_for_int(int len, int dst[len], void (*fun)(uint8_t*)){
         dst[i] = (int) tmp[i];
 }
 
+// Print all possible state for all 4 columns. That is, every combination of one value of each 4 columns represent a possibility encoded in guessoutput. 
 void printguessoutput(int maxguess, const int guessoutput[4][maxguess][4]){
     int i = 0;
     bool hasended[4] = {false, false, false, false};
@@ -77,6 +78,7 @@ void printguessoutput(int maxguess, const int guessoutput[4][maxguess][4]){
     }
 }
 
+// Print all possible state for all dimi (dimi = 16 for a full AES state, 4 for a column) char. That is, every combination of one value of each dimi positions represent a possibility encoded in guessinput. 
 void printguess(int dimi, int dimj, const int guessinput[dimi][dimj][2]){
     for(int i = 0; i < dimi; i++){
         printf("%2d : ", i);
@@ -91,6 +93,7 @@ void printguess(int dimi, int dimj, const int guessinput[dimi][dimj][2]){
     }
 }
 
+// Initialize the table of possibility sboxDDT. Given input/output difference patern din/dout, the possible starting states are all sboxDDT[din][dout][i] that are not -1.
 void initialize_sboxddt(int sboxDDT[256][256][2]) {
 	for(int i = 0; i<256; i++){
         for(int j = 0; j<256; j++){
@@ -114,11 +117,11 @@ void initialize_sboxddt(int sboxDDT[256][256][2]) {
             }
         }
     }
-
 	/* 0 is a special case */
 	sboxDDT[0][0][0] = 256;
 }
 
+// Perform a XOR operation on all possibilities represented by guess_to_xor with const_to_xor and store it in guess.
 void guess_xor_const(int dimi, int dimj, int dimk, int guess[dimi][dimj][dimk], int guess_to_xor[dimi][dimj][dimk], uint8_t const_to_xor[dimi]){
     for(int i = 0; i < dimi; i++)
         for(int j = 0; j < dimj; j++)
@@ -126,6 +129,7 @@ void guess_xor_const(int dimi, int dimj, int dimk, int guess[dimi][dimj][dimk], 
                     guess[i][j][k] = guess_to_xor[i][j][k] == -1 ? -1 : guess_to_xor[i][j][k] ^ const_to_xor[i];
 }
 
+// Build guessinputxor that represents all possibilities resulting on XORing each possibility represented by guessinput1 with each possibility represented by guessinput2. 
 void xor_guess_input(int guessinputxor[16][4][2], int guessinput1[16][2][2], int guessinput2[16][2][2]){
     for(int i = 0; i < 16; i++)
         for(int j = 0; j < 4; j++)
@@ -148,7 +152,8 @@ void xor_guess_input(int guessinputxor[16][4][2], int guessinput1[16][2][2], int
     }
 }
 
-// Get the next element of guessout and return false if no next element.
+/*  Increment the index cycling of every possibilities and store the next possibility to next. Return false if no next element, true otherwise.
+    Inputing a {0,0,0,-1} index will output the first element. */
 bool iter_guessout(int index[4], int next[16], int maxlen, const int guessout[4][maxlen][4]){
     for (int i = 3; i >= 0; i--){
         index[i]++;
@@ -164,6 +169,7 @@ bool iter_guessout(int index[4], int next[16], int maxlen, const int guessout[4]
     return true;
 }
 
+// Apply the subbytes AES operation on each possibility stored in guess.
 void guessinput_subbytes(int dimj, int dimk, int guess[16][dimj][dimk]){
     for(int i = 0; i < 16; i++)
         for(int j = 0; j < dimj; j++)
@@ -171,23 +177,26 @@ void guessinput_subbytes(int dimj, int dimk, int guess[16][dimj][dimk]){
                     guess[i][j][k] = guess[i][j][k] == -1 ? -1 : aes_sbox[guess[i][j][k]];
 }
 
+// Swap the values of two integers.
 void int_swap(int* a, int* b){
     int c = *a; *a = *b; *b = c;
 }
 
+// Swap the values of two guessed char.
 void guess_swap(int dimj, int dimk, int guess1[dimj][dimk], int guess2[dimj][dimk]){
     for(int j = 0; j < dimj; j++)
         for(int k = 0; k < dimk; k++)
             int_swap(&guess1[j][k], &guess2[j][k]);
 }
 
+// Apply the shiftrow AES operation on each possibility stored in guess.
 void guessinput_shiftrow(int dimj, int dimk, int guess[16][dimj][dimk]){
     guess_swap(dimj, dimk, guess[1], guess[5]); guess_swap(dimj, dimk, guess[5], guess[9]); guess_swap(dimj, dimk, guess[9], guess[13]);
     guess_swap(dimj, dimk, guess[2], guess[10]); guess_swap(dimj, dimk, guess[6], guess[14]);
     guess_swap(dimj, dimk, guess[11], guess[15]); guess_swap(dimj, dimk, guess[7], guess[11]); guess_swap(dimj, dimk, guess[3], guess[7]);      
 }
 
-// print current multi-array index for debugging purpose.
+// Print current multi-array index for debugging purpose.
 void printindex(const int index[4][2]){
     printf("{ ");
     for(int i = 0; i < 4; i++){
@@ -214,6 +223,10 @@ bool incrementindex(int dimj, int index[4][2], const int guessinput[4][dimj][2])
     return false;
 }
 
+/*
+    Apply the mix_column AES operation on each possibility stored in guessin and store the result in guessout.
+    Notice that we can't store the resulting possibilities of each 4 char independently but we have to store a full column guesses for each possibility encoded by guessin.
+*/
 void guessoutput_mix_column(int dimj, int guessout[MAX_GUESSOUTPUT][4], const int guessin[4][dimj][2]){
     int indexin[4][2] = {0};
     uint8_t to_mix[4];
@@ -238,6 +251,10 @@ void guessoutput_mix_column(int dimj, int guessout[MAX_GUESSOUTPUT][4], const in
     }
 }
 
+/*
+    Apply a full AES round operation on each possibility stored in guessinput and store the result in guessoutput.
+    Due to the mix column operation we can't store the resulting possibilities of each 16 char independently but we have to store multiple guesses for each 4 columns.
+*/
 void guess_output_aes_from_input(int dimj, int guessoutput[4][MAX_GUESSOUTPUT][4], const int guessinput[16][dimj][2]){
     int guessshiftsub[16][dimj][2];
     for(int i = 0; i < 16; i++)
@@ -252,6 +269,7 @@ void guess_output_aes_from_input(int dimj, int guessoutput[4][MAX_GUESSOUTPUT][4
     }
 }
 
+// Derive all possible input states in guessinput from the observed input difference in1 ^ in2 and output difference out1 ^ out2.
 void guess_input_from_aes_diff(int guessinput[16][2][2], uint8_t in1[16], uint8_t in2[16],
                                         uint8_t out1[16], uint8_t out2[16], const int sboxDDT[256][256][2]){
     for(int i = 0; i < 16; i++)
@@ -280,6 +298,7 @@ void guess_input_from_aes_diff(int guessinput[16][2][2], uint8_t in1[16], uint8_
     return;
 }
 
+// Build guessoutxorin that represents all possibilities resulting on XORing each possibility represented by guessout with each possibility represented by guessin. 
 void guess_output_xor_input(int dimj, int guessoutxorin[4][MAX_GUESS][4], const int guessout[4][MAX_GUESSOUTPUT][4], const int guessin[16][dimj][2]){
     int state[4];
     for(int i = 0; i < 4; i++){
@@ -303,6 +322,7 @@ void guess_output_xor_input(int dimj, int guessoutxorin[4][MAX_GUESS][4], const 
     }
 }
 
+// Perform a XOR operation on all possibilities represented by guessout with val and store it in guessoutxorconst.
 void guess_output_xor_const(int maxlen, int guessoutxorconst[4][maxlen][4], const int guessout[4][maxlen][4], const uint8_t val[16]){
     for(int i = 0; i < 4; i++){
         int j = 0;
@@ -317,6 +337,7 @@ void guess_output_xor_const(int maxlen, int guessoutxorconst[4][maxlen][4], cons
     }
 }
 
+// Look for a possibility indst of guessin and a possibility outdst of guessout such that indst ^ outdst = res.
 void out_in_from_real(int dimj, int indst[16], int outdst[16], const int res[16], const int guessin[16][dimj][2], const int guessout[4][MAX_GUESSOUTPUT][4]){
     bool matchfound;
     for(int col = 0; col < 4; col++){
@@ -354,12 +375,14 @@ void out_in_from_real(int dimj, int indst[16], int outdst[16], const int res[16]
     }
 }
 
+// Return the number of column guesses stored in guessoutput.
 int getsize_guessoutput (const int guessoutput[MAX_GUESS][4]) {
     int size = -1;
     while(guessoutput[++size][0] != -1);
     return size;
 }
 
+// Compare two char arrays.
 int cmp_arr_char (const void * a, const void * b, const int len) {
     for(int i = 0; i < len; i++){
         if(((char*) a)[i] != ((char*) b)[i])
@@ -368,6 +391,7 @@ int cmp_arr_char (const void * a, const void * b, const int len) {
     return 0;
 }
 
+// Compare two int arrays.
 int cmp_arr_int (const void * a, const void * b, const int len) {
     for(int i = 0; i < len; i++){
         if(((int*) a)[i] != ((int*) b)[i])
@@ -376,10 +400,12 @@ int cmp_arr_int (const void * a, const void * b, const int len) {
     return 0;
 }
 
+// Compare two guesses of column of guessoutput for sorting.
 int cmpguess_col (const void * a, const void * b) {
     return cmp_arr_int(a, b, 4);
 }
 
+// Sort all guesses of each column of guessoutput independently in ascending order.
 void sort_guess_output(int guessoutput[4][MAX_GUESS][4]){
     for(int i = 0; i < 4; i++){
         qsort(guessoutput[i], getsize_guessoutput(guessoutput[i]), sizeof(int[4]), cmpguess_col);
@@ -391,8 +417,6 @@ int is_included_s(const int val[4], const int (*arr)[4], int arr_len){
     int min_index = 0;
     int max_index = arr_len-1;
     int cmp, currindex;
-    if(cmpguess_col(val, arr[max_index]) > 0) return -1;
-    if(cmpguess_col(val, arr[min_index]) < 0) return -1;
     while(min_index <= max_index){
         currindex = min_index + (max_index - min_index)/2;
         cmp = cmpguess_col(val, arr[currindex]);
@@ -406,6 +430,7 @@ int is_included_s(const int val[4], const int (*arr)[4], int arr_len){
     return -1;  // value not found.
 }
 
+// The meet in the middle procedure as described in the paper. It finds the compatible possibilities among all guesses available and store them in dst.
 int meet_in_the_middle_procedure(int dst[3][16], const int guessoutBxorinDxorM11MC02[4][MAX_GUESS][4],
 const int guessoutputxorAB[4][MAX_GUESSOUTPUT][4], const int guessinputxorCDxorM01[16][4][2]){
 
@@ -469,9 +494,11 @@ const int guessoutputxorAB[4][MAX_GUESSOUTPUT][4], const int guessinputxorCDxorM
     return 0;
 }
 
+// The full key-recovery procedure. It takes two message/ciphertex pairs M1/C1 and M2/C2 enciphered with the same nonce, recovers the key and stores it in key. 
 void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[128+16], uint8_t C2[128+16], const int sboxDDT[256][256][2]){
     bool verbose = false; // activate the printf of all steps.
 
+    // Compute the key-stream used to encrypt M1 and M2.
     uint8_t MC1[128], MC2[128];
     for(int i = 0; i < 128; i++){
         MC1[i] = M1[i] ^ C1[i];
@@ -495,6 +522,7 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
     guess_input_from_aes_diff(guessinputD, M1+48, M2+48, MC1+96, MC2+96, sboxDDT);
     if(verbose) { printf("\nInput D:\n"); printguess( 16, 2, guessinputD); }
 
+    // Deduce more branches by XORing the guesses with each other and with constants.
     int guessinputxorAB[16][4][2];
     xor_guess_input(guessinputxorAB, guessinputA, guessinputB);
     if(verbose) { printf("\nA xor B:\n"); printguess( 16, 4, guessinputxorAB);}
@@ -511,6 +539,7 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
     guess_xor_const(16, 2, 2, guessinputDxorM11, guessinputD, M1+48);
     if(verbose) { printf("\nD xor M^1_1:\n"); printguess( 16, 2, guessinputDxorM11);}
 
+    // From the guesses in input of an AES rounds, deduce the guesses in the output.
     int guessoutputB[4][MAX_GUESSOUTPUT][4];
     guess_output_aes_from_input(2, guessoutputB, guessinputB);
     if(verbose) { printf("\nOutput B:\n"); printguessoutput(MAX_GUESSOUTPUT, guessoutputB);}
@@ -519,6 +548,7 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
     guess_output_aes_from_input(4, guessoutputxorAB, guessinputxorAB);
     if(verbose) { printf("\nOutput A xor B:\n"); printguessoutput(MAX_GUESSOUTPUT, guessoutputxorAB);}
 
+    // XOR guesses with each other to deduce all branches between the meet-in-the-middle section.
     int guessoutBxorinDM11[4][MAX_GUESS][4];
     guess_output_xor_input(2, guessoutBxorinDM11, guessoutputB, guessinputDxorM11);
     if(verbose) { printf("\nOutput B xor input DM11:\n"); printguessoutput(MAX_GUESS, guessoutBxorinDM11);}
@@ -528,6 +558,7 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
     sort_guess_output(guessoutBxorinDxorM11MC02);
     if(verbose) { printf("\nOutput B xor input D xor M11 xor MC02 sorted:\n"); printguessoutput(MAX_GUESS, guessoutBxorinDxorM11MC02);}
 
+    // Do the meet-in-the-middle procedure to finally filter all guesses into a solution.
     int solutions[3][16];
     if(meet_in_the_middle_procedure(solutions, guessoutBxorinDxorM11MC02, guessoutputxorAB, guessinputxorCDxorM01)==-1){
         printf("meet in the middle FAILURE.\n");
@@ -640,6 +671,7 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
 
 }
 
+// Test the key recovery procedure and print the time it took to run.
 int main(void) {
     clock_t start, end;
     double cpu_time_used;

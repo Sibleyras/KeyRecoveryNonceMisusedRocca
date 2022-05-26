@@ -2,7 +2,6 @@
 #define ROCCA_H
 
 #include <stdbool.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include "../src/rocca_u128.h"
 

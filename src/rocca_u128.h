@@ -4,6 +4,7 @@
 #include "aes.h"
 
 #include <string.h>
+#include <stdint.h>
 
 typedef __uint128_t u128;
 
