@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <time.h>
 
+// Size of the big arrays to hold many guesses. Increase if not sufficient.
 #define MAX_GUESSOUTPUT 250
 #define MAX_GUESS 2050
 
@@ -546,11 +547,8 @@ const int guessoutputxorAB[4][MAX_GUESSOUTPUT][4], const int guessinputxorCDxorM
                             dst[nbsols][2][i] = xorCDxorM01state[i];    // this holds the correct xorCDxorM01
                         }
                         nbsols++;
-
                     }
-
                 }
-
             }
         }
     }
@@ -713,6 +711,7 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
             memcpy(s_guess[6], S16, sizeof(int)*16);
             memcpy(s_guess[7], inputxorCDxorM01, sizeof(int)*16);
 
+            // Compute the tag starting from the recovered state.
             loadroccastate(sroccaguess, s_guess);
             rocca_update(sroccaguess, load_u128(M1+32), load_u128(M1+48));
             rocca_update(sroccaguess, load_u128(M1+64), load_u128(M1+80));
@@ -752,7 +751,7 @@ int main(void) {
     start = clock();
 
     int sboxDDT[256][256][2];   // Given Din and Dout, the input state possibilities are sboxDDT[0]/sboxDDT[0]^Din orelse sboxDDT[1]/sboxDDT[1]^Din.
-    initialize_sboxddt(sboxDDT);
+    initialize_sboxddt(sboxDDT);// This is actually a constant w.r.t the sbox that we compute.
 
     int seed = time(0);
     uint8_t key[32]; randkey(key, seed); // create a random key
@@ -764,11 +763,11 @@ int main(void) {
         M1[i] = 0x3f+i;           // Some message value.
         M2[i] = M1[i];
         if(16 <= i && i < 32)
-            M2[i] = M1[i] ^ (0x01+i-16);   // Impose a difference on each byte of M+16.
+            M2[i] = M1[i] ^ (0x01+i);   // Impose a difference on each byte of M+16.
         if(48 <= i && i < 64)
-            M2[i] = M1[i] ^ (0x01+i-48);   // Impose a difference on each byte of M+48.
+            M2[i] = M1[i] ^ (0x01+i);   // Impose a difference on each byte of M+48.
         if(80 <= i && i < 96)
-            M2[i] = M1[i] ^ (0x01+i-80);   // Impose a difference on each byte of M+80.
+            M2[i] = M1[i] ^ (0x01+i);   // Impose a difference on each byte of M+80.
     }
 
     // Encrypt M1
