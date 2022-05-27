@@ -39,7 +39,7 @@ void u128_to_arr(int dst[16], const u128 src){
 }
 
 // Apply a function fun that takes a char array as input to an integer array dst.
-void uint_fun_for_int(int len, int dst[len], void (*fun)(uint8_t*)){
+void char_fun_for_int(int len, int dst[len], void (*fun)(uint8_t*)){
     uint8_t tmp[len];
     for(int i = 0; i < 16; i++)
         tmp[i] = (uint8_t) dst[i];
@@ -431,7 +431,7 @@ int is_included_s(const int val[4], const int (*arr)[4], int arr_len){
 }
 
 // The meet in the middle procedure as described in the paper. It finds the compatible possibilities among all guesses available and store them in dst.
-int meet_in_the_middle_procedure(int dst[3][16], const int guessoutBxorinDxorM11MC02[4][MAX_GUESS][4],
+int meet_in_the_middle_procedure(int dst[16][3][16], const int guessoutBxorinDxorM11MC02[4][MAX_GUESS][4],
 const int guessoutputxorAB[4][MAX_GUESSOUTPUT][4], const int guessinputxorCDxorM01[16][4][2]){
 
     int guessoutBinDlen[4] = {getsize_guessoutput(guessoutBxorinDxorM11MC02[0]), getsize_guessoutput(guessoutBxorinDxorM11MC02[1]),
@@ -443,55 +443,118 @@ const int guessoutputxorAB[4][MAX_GUESSOUTPUT][4], const int guessinputxorCDxorM
         {12, 1,  6,  11}
     };
     
-    int xorABstate[16], xorABcol[4];     //  will hold all possible states from the guessoutputxorAB values.
+    int nbsols = 0;                        // return at most 16 solutions (most probably one or two).
+    int xorABstate[16];                 //  will hold all possible states from the guessoutputxorAB values.
     int xorCDxorM01state[16];           //  will hold all possible states from the guessinputxorCDxorM01 values.
-    int currstate[16], currcol[4];      //  will hold all possible states and check inclusion.
-    int collision = -1;                 // -1 is no collision found, else it is the index where the collision has been found.
+    int BxorinDxorM11MC02[16], currcol[4];      //  will hold all possible states and check inclusion.
 
     // Loop over all quadruples forming xorABstate.
     int indexout[4] = {0,0,0,-1};       // this will make the loop start at index { 0 0 0 0 };
     while(iter_guessout(indexout, xorABstate, MAX_GUESSOUTPUT, guessoutputxorAB)){
-        
+
+        // Reorganize values of guessinputxorCDxorM01 and xorABstate to align column of interest.
+        int inCDcol[4][4][4][2], xorABcol[4][4];
         for(int col = 0; col < 4; col++){
-            int inCDcol[4][4][2];
             for(int i = 0; i < 4; i++){
-                xorABcol[i] = xorABstate[byte_pos[col][i]];
+                xorABcol[col][i] = xorABstate[byte_pos[col][i]];
                 for(int j = 0; j < 4; j++)
                     for(int k = 0; k < 2; k++)
-                        inCDcol[i][j][k] = guessinputxorCDxorM01[byte_pos[col][i]][j][k];
-            }
-            int index[4][2] = {0};
-            do{
-                uint8_t currcol8[4];
-                for(int i = 0; i < 4; i++){
-                    currcol8[i] = xorABcol[i] ^ inCDcol[i][index[i][0]][index[i][1]];
-                    currcol8[i] = aes_sbox[currcol8[i]];
-                }
-                gmix_column(currcol8);
-                for(int i = 0; i < 4; i++)
-                    currcol[i] = currcol8[i];
-                collision = is_included_s(currcol, guessoutBxorinDxorM11MC02[col], guessoutBinDlen[col]);
-            } while(collision == -1 && incrementindex(4, index, inCDcol));
-            if(collision == -1){
-                break;
-            }
-            for(int i = 0; i < 4; i++){
-                xorCDxorM01state[byte_pos[col][i]] = inCDcol[i][index[i][0]][index[i][1]];
-                currstate[col*4+i] = guessoutBxorinDxorM11MC02[col][collision][i];
+                        inCDcol[col][i][j][k] = guessinputxorCDxorM01[byte_pos[col][i]][j][k];
             }
         }
 
-        if(collision != -1){
-            for(int i = 0; i < 16; i++){
-                dst[0][i] = currstate[i];   // this holds the correct outBxorinDxorM11MC02
-                dst[1][i] = xorABstate[i];   // this holds the correct xorAB
-                dst[2][i] = xorCDxorM01state[i];   // this holds the correct xorCDxorM01
+        // Loop to match on first column
+        int indexcol0[4][2] = {0}; indexcol0[3][1] = -1;
+        int collisioncol0;
+        while(incrementindex(4, indexcol0, inCDcol[0])){
+            for(int i = 0; i < 4; i++){
+                currcol[i] = xorABcol[0][i] ^ inCDcol[0][i][indexcol0[i][0]][indexcol0[i][1]];
+                currcol[i] = aes_sbox[currcol[i]];
             }
-            return 1;
+            char_fun_for_int(4, currcol, gmix_column);
+            // Test inclusion if not go to next value.
+            collisioncol0 = is_included_s(currcol, guessoutBxorinDxorM11MC02[0], guessoutBinDlen[0]);
+            if(collisioncol0 < 0)
+                continue;
+            
+            for(int i = 0; i < 4; i++){
+                xorCDxorM01state[byte_pos[0][i]] = inCDcol[0][i][indexcol0[i][0]][indexcol0[i][1]];
+                BxorinDxorM11MC02[4*0+i] = guessoutBxorinDxorM11MC02[0][collisioncol0][i];
+            }
+
+            // Loop to match on second column
+            int indexcol1[4][2] = {0}; indexcol1[3][1] = -1;
+            int collisioncol1;
+            while(incrementindex(4, indexcol1, inCDcol[1])){
+                for(int i = 0; i < 4; i++){
+                    currcol[i] = xorABcol[1][i] ^ inCDcol[1][i][indexcol1[i][0]][indexcol1[i][1]];
+                    currcol[i] = aes_sbox[currcol[i]];
+                }
+                char_fun_for_int(4, currcol, gmix_column);
+                // Test inclusion if not go to next value.
+                collisioncol1 = is_included_s(currcol, guessoutBxorinDxorM11MC02[1], guessoutBinDlen[1]);
+                if(collisioncol1 < 0)
+                    continue;
+                
+                for(int i = 0; i < 4; i++){
+                    xorCDxorM01state[byte_pos[1][i]] = inCDcol[1][i][indexcol1[i][0]][indexcol1[i][1]];
+                    BxorinDxorM11MC02[4*1+i] = guessoutBxorinDxorM11MC02[1][collisioncol1][i];
+                }
+
+                // Loop to match on third column
+                int indexcol2[4][2] = {0}; indexcol2[3][1] = -1;
+                int collisioncol2;
+                while(incrementindex(4, indexcol2, inCDcol[2])){
+                    for(int i = 0; i < 4; i++){
+                        currcol[i] = xorABcol[2][i] ^ inCDcol[2][i][indexcol2[i][0]][indexcol2[i][1]];
+                        currcol[i] = aes_sbox[currcol[i]];
+                    }
+                    char_fun_for_int(4, currcol, gmix_column);
+                    // Test inclusion if not go to next value.
+                    collisioncol2 = is_included_s(currcol, guessoutBxorinDxorM11MC02[2], guessoutBinDlen[2]);
+                    if(collisioncol2 < 0)
+                        continue;
+
+                    for(int i = 0; i < 4; i++){
+                        xorCDxorM01state[byte_pos[2][i]] = inCDcol[2][i][indexcol2[i][0]][indexcol2[i][1]];
+                        BxorinDxorM11MC02[4*2+i] = guessoutBxorinDxorM11MC02[2][collisioncol2][i];
+                    }
+
+                    // Loop to match on fourth column
+                    int indexcol3[4][2] = {0}; indexcol3[3][1] = -1;
+                    int collisioncol3;
+                    while(incrementindex(4, indexcol3, inCDcol[3])){
+                        for(int i = 0; i < 4; i++){
+                            currcol[i] = xorABcol[3][i] ^ inCDcol[3][i][indexcol3[i][0]][indexcol3[i][1]];
+                            currcol[i] = aes_sbox[currcol[i]];
+                        }
+                        char_fun_for_int(4, currcol, gmix_column);
+                        // Test inclusion if not go to next value.
+                        collisioncol3 = is_included_s(currcol, guessoutBxorinDxorM11MC02[3], guessoutBinDlen[3]);
+                        if(collisioncol3 < 0)
+                            continue;
+
+                        for(int i = 0; i < 4; i++){
+                            xorCDxorM01state[byte_pos[3][i]] = inCDcol[3][i][indexcol3[i][0]][indexcol3[i][1]];
+                            BxorinDxorM11MC02[4*3+i] = guessoutBxorinDxorM11MC02[3][collisioncol3][i];
+                        }
+
+                        // Solution found! Store it.
+                        for(int i = 0; i < 16; i++){
+                            dst[nbsols][0][i] = BxorinDxorM11MC02[i];   // this holds the correct outBxorinDxorM11MC02
+                            dst[nbsols][1][i] = xorABstate[i];          // this holds the correct xorAB
+                            dst[nbsols][2][i] = xorCDxorM01state[i];    // this holds the correct xorCDxorM01
+                        }
+                        nbsols++;
+
+                    }
+
+                }
+
+            }
         }
     }
-
-    return 0;
+    return nbsols;
 }
 
 // The full key-recovery procedure. It takes two message/ciphertex pairs M1/C1 and M2/C2 enciphered with the same nonce, recovers the key and stores it in key. 
@@ -558,50 +621,15 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
     sort_guess_output(guessoutBxorinDxorM11MC02);
     if(verbose) { printf("\nOutput B xor input D xor M11 xor MC02 sorted:\n"); printguessoutput(MAX_GUESS, guessoutBxorinDxorM11MC02);}
 
-    // Do the meet-in-the-middle procedure to finally filter all guesses into a solution.
-    int solutions[3][16];
-    if(meet_in_the_middle_procedure(solutions, guessoutBxorinDxorM11MC02, guessoutputxorAB, guessinputxorCDxorM01)==-1){
+    // Do the meet-in-the-middle procedure to finally filter all guesses into a solution, sometimes multiple solutions exist.
+    int solutions[16][3][16];
+    int nbsolutions = meet_in_the_middle_procedure(solutions, guessoutBxorinDxorM11MC02, guessoutputxorAB, guessinputxorCDxorM01);
+    if(nbsolutions == 0){
         printf("meet in the middle FAILURE.\n");
         return;
     }
 
-    // Deduce many states from the meet in the middle result.
-    int (*outBxorinDxorM11MC02), (*outputxorAB), (*inputxorCDxorM01);
-    outBxorinDxorM11MC02 = solutions[0];
-    outputxorAB = solutions[1];
-    inputxorCDxorM01 = solutions[2];
-
-    int outBxorinDM11[16];
-    for(int i = 0; i < 16; i++)
-        outBxorinDM11[i] = outBxorinDxorM11MC02[i] ^ MC1[64+i];
-    
-    int outB[16], inDM11[16];
-    out_in_from_real(2, inDM11, outB, outBxorinDM11, guessinputDxorM11, guessoutputB);
-
-    int inAB[16], inB[16];
-    memcpy(inAB, outputxorAB, sizeof(int)*16);
-    uint_fun_for_int(16, inAB, aes_inv_oneround);
-    memcpy(inB, outB, sizeof(int)*16);
-    uint_fun_for_int(16, inB, aes_inv_oneround);
-
-    int inA[16], outA[16],  outAMC11[16];
-    for(int i = 0; i < 16; i++)
-        inA[i] = inAB[i] ^ inB[i];
-    memcpy(outA, inA, sizeof(int)*16);
-    uint_fun_for_int(16, outA, aes_oneround);
-    for(int i = 0; i < 16; i++)
-        outAMC11[i] = outA[i] ^ MC1[48+i];
-
-    int inD[16], S20[16], inC[16],  outC[16];
-    for(int i = 0; i < 16; i++){
-        inD[i] = inDM11[i] ^ M1[48+i];
-        S20[i] = inputxorCDxorM01[i] ^ M1[32+i];
-        inC[i] = inD[i] ^ S20[i];
-        outC[i] = inC[i];
-    }
-    uint_fun_for_int(16, outC, aes_oneround);
-
-    // We need the state aroud E to recover the whole internal states.
+    // We will need the state aroud E to recover the whole internal state.
     uint8_t inE1[16], inE2[16], outE1[16], outE2[16];
     for(int i = 0; i < 16; i++){
         inE1[i] = M1[80+i] ^ M1[64+i];
@@ -617,57 +645,103 @@ void keyrecovery(uint8_t key[32], uint8_t M1[128], uint8_t M2[128], uint8_t C1[1
     guess_output_aes_from_input(2, guessoutputE, guessinputE);
     if(verbose) { printf("\nOutput E:\n"); printguessoutput(MAX_GUESSOUTPUT, guessoutputE);}
 
-    // guess the correct output E (likely 2^16 guesses), recover a whole internal state, verify the guess by computing the tag.
-    int indexE[4] = {0,0,0,-1};
-    int s_guess[8][16];
-    int outE[16], S26[16], S15[16], S11[16], S16[16];
-    bool match = false; int T[16]; rocca_state sroccaguess;
-    while(!match && iter_guessout(indexE, outE, MAX_GUESSOUTPUT, guessoutputE)){
-        for(int i = 0; i < 16; i++){
-            S26[i] = outputxorAB[i] ^ inputxorCDxorM01[i] ^ MC1[112+i] ^ outE[i];
-            S15[i] = S26[i] ^ inB[i];
-        }
+    // Pick a solution and guess an output E (likely 2^16 guesses), recover a whole internal state, verify the guess by computing the tag.
+    // If no guess of E works, get the next solution of the meet in the middle procedure.
+    for(int sol = 0; sol < nbsolutions; sol++){
+        // Deduce many states from the meet in the middle solution.
+        int (*outBxorinDxorM11MC02), (*outputxorAB), (*inputxorCDxorM01);
+        outBxorinDxorM11MC02 = solutions[sol][0];
+        outputxorAB = solutions[sol][1];
+        inputxorCDxorM01 = solutions[sol][2];
+
+        int outBxorinDM11[16];
+        for(int i = 0; i < 16; i++)
+            outBxorinDM11[i] = outBxorinDxorM11MC02[i] ^ MC1[64+i];
         
-        uint_fun_for_int(16, S15, aes_inv_oneround);
+        int outB[16], inDM11[16];
+        out_in_from_real(2, inDM11, outB, outBxorinDM11, guessinputDxorM11, guessoutputB);
 
+        int inAB[16], inB[16];
+        memcpy(inAB, outputxorAB, sizeof(int)*16);
+        char_fun_for_int(16, inAB, aes_inv_oneround);
+        memcpy(inB, outB, sizeof(int)*16);
+        char_fun_for_int(16, inB, aes_inv_oneround);
+
+        int inA[16], outA[16],  outAMC11[16];
         for(int i = 0; i < 16; i++)
-            S11[i] = S15[i] ^ MC1[32+i];
-        uint_fun_for_int(16, S11, aes_inv_oneround);
-
+            inA[i] = inAB[i] ^ inB[i];
+        memcpy(outA, inA, sizeof(int)*16);
+        char_fun_for_int(16, outA, aes_oneround);
         for(int i = 0; i < 16; i++)
-            S16[i] = S11[i] ^ outC[i] ^ MC1[80+i];
+            outAMC11[i] = outA[i] ^ MC1[48+i];
 
-        memcpy(s_guess[0], inAB, sizeof(int)*16);
-        memcpy(s_guess[1], S11, sizeof(int)*16);
-        memcpy(s_guess[2], outAMC11, sizeof(int)*16);
-        memcpy(s_guess[3], inDM11, sizeof(int)*16);
-        memcpy(s_guess[4], inB, sizeof(int)*16);
-        memcpy(s_guess[5], S15, sizeof(int)*16);
-        memcpy(s_guess[6], S16, sizeof(int)*16);
-        memcpy(s_guess[7], inputxorCDxorM01, sizeof(int)*16);
-
-        loadroccastate(sroccaguess, s_guess);
-        rocca_update(sroccaguess, load_u128(M1+32), load_u128(M1+48));
-        rocca_update(sroccaguess, load_u128(M1+64), load_u128(M1+80));
-        rocca_update(sroccaguess, load_u128(M1+96), load_u128(M1+112));
-
-        u128_to_arr(T, rocca_mac(sroccaguess, 0, 128));
-
-        match = true;
+        int inD[16], S20[16], inC[16],  outC[16];
         for(int i = 0; i < 16; i++){
-            match &= (T[i] == C1[128+i]);
+            inD[i] = inDM11[i] ^ M1[48+i];
+            S20[i] = inputxorCDxorM01[i] ^ M1[32+i];
+            inC[i] = inD[i] ^ S20[i];
+            outC[i] = inC[i];
         }
-    }
+        char_fun_for_int(16, outC, aes_oneround);
 
-    // Invert the encryption to get the initial state and thus the key.
-    loadroccastate(sroccaguess, s_guess);
-    rocca_downdate(sroccaguess, load_u128(M1+0), load_u128(M1+16));
-    for(int i = 0; i < 20; i++){
-        rocca_downdate(sroccaguess, load_u128(Z0), load_u128(Z1));
-    }
+        // Cycle through all guesses of E and check if one is correct.
+        int indexE[4] = {0,0,0,-1};
+        int s_guess[8][16];
+        int outE[16], S26[16], S15[16], S11[16], S16[16];
+        bool match = false; int T[16]; rocca_state sroccaguess;
+        while(!match && iter_guessout(indexE, outE, MAX_GUESSOUTPUT, guessoutputE)){
+            for(int i = 0; i < 16; i++){
+                S26[i] = outputxorAB[i] ^ inputxorCDxorM01[i] ^ MC1[112+i] ^ outE[i];
+                S15[i] = S26[i] ^ inB[i];
+            }
+            
+            char_fun_for_int(16, S15, aes_inv_oneround);
 
-    store_u128(key, sroccaguess[6]);
-    store_u128(key+16, sroccaguess[0]);
+            for(int i = 0; i < 16; i++)
+                S11[i] = S15[i] ^ MC1[32+i];
+            char_fun_for_int(16, S11, aes_inv_oneround);
+
+            for(int i = 0; i < 16; i++)
+                S16[i] = S11[i] ^ outC[i] ^ MC1[80+i];
+
+            memcpy(s_guess[0], inAB, sizeof(int)*16);
+            memcpy(s_guess[1], S11, sizeof(int)*16);
+            memcpy(s_guess[2], outAMC11, sizeof(int)*16);
+            memcpy(s_guess[3], inDM11, sizeof(int)*16);
+            memcpy(s_guess[4], inB, sizeof(int)*16);
+            memcpy(s_guess[5], S15, sizeof(int)*16);
+            memcpy(s_guess[6], S16, sizeof(int)*16);
+            memcpy(s_guess[7], inputxorCDxorM01, sizeof(int)*16);
+
+            loadroccastate(sroccaguess, s_guess);
+            rocca_update(sroccaguess, load_u128(M1+32), load_u128(M1+48));
+            rocca_update(sroccaguess, load_u128(M1+64), load_u128(M1+80));
+            rocca_update(sroccaguess, load_u128(M1+96), load_u128(M1+112));
+
+            u128_to_arr(T, rocca_mac(sroccaguess, 0, 128));
+
+            // Compare the real tag with the computed tag.
+            match = true;
+            for(int i = 0; i < 16; i++){
+                match &= (T[i] == C1[128+i]);
+            }
+        }
+
+        // If there was no guess of E such that we could recover the tag, go to the next solution.
+        if(!match) continue;
+
+        // Invert the encryption to get the initial state and thus the key.
+        loadroccastate(sroccaguess, s_guess);
+        rocca_downdate(sroccaguess, load_u128(M1+0), load_u128(M1+16));
+        for(int i = 0; i < 20; i++){
+            rocca_downdate(sroccaguess, load_u128(Z0), load_u128(Z1));
+        }
+
+        // Return the key value and exit the function.
+        store_u128(key, sroccaguess[6]);
+        store_u128(key+16, sroccaguess[0]);
+        return;
+    }
 
 }
 
